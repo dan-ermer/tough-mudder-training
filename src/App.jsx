@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "./supabase.js";
 
 const LIME = "#C8F135";
 const FOREST = "#0A3D2E";
@@ -637,7 +638,213 @@ const NAV_ITEMS = [
   { id: "mobility", label: "Mobility" },
   { id: "dailies", label: "Dailies & Diet" },
   { id: "strength", label: "Strength" },
+  { id: "journal", label: "Journal" },
 ];
+
+// ─────────────────────────────────────────────
+// JOURNAL
+// ─────────────────────────────────────────────
+
+function JournalView() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState({
+    entry_date: new Date().toISOString().slice(0, 10),
+    phase: "p1",
+    day_name: todayDayName(),
+    session_label: "",
+    notes: "",
+  });
+  const [expandedId, setExpandedId] = useState(null);
+
+  const phaseLabel = (id) => PHASES.find(p => p.id === id)?.label ?? id;
+
+  const sessionOptions = (phase, day) => {
+    const data = SCHEDULE[phase]?.[day];
+    if (!data || data.rest) return [];
+    return [data.am?.label, data.pm?.label].filter(Boolean);
+  };
+
+  const fetchEntries = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("*")
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) setError(error.message);
+    else setEntries(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchEntries(); }, [fetchEntries]);
+
+  // Reset session_label when phase or day changes
+  useEffect(() => {
+    const opts = sessionOptions(form.phase, form.day_name);
+    setForm(f => ({ ...f, session_label: opts[0] ?? "" }));
+  }, [form.phase, form.day_name]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.notes.trim()) return;
+    setSaving(true);
+    setError(null);
+    const { error } = await supabase.from("journal_entries").insert([{
+      entry_date: form.entry_date,
+      phase: form.phase,
+      day_name: form.day_name,
+      session_label: form.session_label,
+      notes: form.notes.trim(),
+    }]);
+    if (error) setError(error.message);
+    else {
+      setForm(f => ({ ...f, notes: "" }));
+      fetchEntries();
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id) => {
+    const { error } = await supabase.from("journal_entries").delete().eq("id", id);
+    if (!error) setEntries(e => e.filter(x => x.id !== id));
+  };
+
+  const inputStyle = {
+    width: "100%", padding: "9px 12px", borderRadius: 7,
+    border: `1px solid ${BORDER}`, fontSize: 14, color: TEXT,
+    background: CARD_BG, outline: "none", fontFamily: "inherit",
+  };
+  const selectStyle = { ...inputStyle };
+
+  const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+  return (
+    <div>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: TEXT, marginBottom: 4 }}>Workout Journal</h2>
+        <p style={{ fontSize: 14, color: MUTED }}>Log notes after each session — how it felt, what you hit, what to adjust.</p>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} style={{ background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px", marginBottom: 28 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: FOREST_MID, marginBottom: 14, textTransform: "uppercase", letterSpacing: "0.08em" }}>Log a Session</div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, color: MUTED, display: "block", marginBottom: 4 }}>Date</label>
+            <input type="date" style={inputStyle} value={form.entry_date}
+              onChange={e => setForm(f => ({ ...f, entry_date: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: MUTED, display: "block", marginBottom: 4 }}>Phase</label>
+            <select style={selectStyle} value={form.phase}
+              onChange={e => setForm(f => ({ ...f, phase: e.target.value }))}>
+              {PHASES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: MUTED, display: "block", marginBottom: 4 }}>Day</label>
+            <select style={selectStyle} value={form.day_name}
+              onChange={e => setForm(f => ({ ...f, day_name: e.target.value }))}>
+              {days.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: MUTED, display: "block", marginBottom: 4 }}>Session</label>
+            <input style={inputStyle} value={form.session_label} placeholder="e.g. Cardio + Prehab"
+              onChange={e => setForm(f => ({ ...f, session_label: e.target.value }))}
+              list="session-opts" />
+            <datalist id="session-opts">
+              {sessionOptions(form.phase, form.day_name).map(s => <option key={s} value={s} />)}
+            </datalist>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, color: MUTED, display: "block", marginBottom: 4 }}>Notes</label>
+          <textarea
+            style={{ ...inputStyle, minHeight: 90, resize: "vertical", lineHeight: 1.6 }}
+            placeholder="How did it go? What weight did you hit? How did your knees feel? Anything to adjust next time?"
+            value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+          />
+        </div>
+
+        {error && <div style={{ fontSize: 13, color: CORAL, marginBottom: 10 }}>{error}</div>}
+
+        <button type="submit" disabled={saving || !form.notes.trim()} style={{
+          background: saving ? BORDER : FOREST, color: saving ? MUTED : LIME,
+          border: "none", borderRadius: 8, padding: "10px 22px",
+          fontSize: 14, fontWeight: 600, cursor: saving ? "default" : "pointer",
+          transition: "all 0.15s",
+        }}>
+          {saving ? "Saving…" : "Save Entry"}
+        </button>
+      </form>
+
+      {/* Entry list */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+        {loading ? "Loading…" : `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`}
+      </div>
+
+      {!loading && entries.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: MUTED, fontSize: 14, fontStyle: "italic" }}>
+          No entries yet — log your first session above.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {entries.map(entry => {
+          const isOpen = expandedId === entry.id;
+          const phaseObj = PHASES.find(p => p.id === entry.phase);
+          return (
+            <div key={entry.id} style={{ background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden" }}>
+              <div
+                onClick={() => setExpandedId(isOpen ? null : entry.id)}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer", userSelect: "none" }}
+              >
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: MUTED, minWidth: 90, flexShrink: 0 }}>
+                  {entry.entry_date}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    {phaseObj && (
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: phaseObj.light, color: phaseObj.color }}>
+                        {phaseObj.label}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 13, fontWeight: 600, color: TEXT }}>{entry.day_name}</span>
+                    {entry.session_label && <span style={{ fontSize: 12, color: MUTED }}>· {entry.session_label}</span>}
+                  </div>
+                  {!isOpen && (
+                    <div style={{ fontSize: 12, color: MUTED, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {entry.notes}
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontSize: 18, color: MUTED, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}>›</span>
+              </div>
+              {isOpen && (
+                <div style={{ padding: "0 16px 16px" }}>
+                  <div style={{ fontSize: 14, color: TEXT, lineHeight: 1.7, whiteSpace: "pre-wrap", marginBottom: 14 }}>{entry.notes}</div>
+                  <button
+                    onClick={() => handleDelete(entry.id)}
+                    style={{ fontSize: 12, color: CORAL, background: CORAL_LIGHT, border: "none", borderRadius: 6, padding: "5px 12px", cursor: "pointer" }}
+                  >
+                    Delete entry
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [activePhase, setActivePhase] = useState("p1");
@@ -749,6 +956,7 @@ export default function App() {
         {activeNav === "mobility" && <MobilityView />}
         {activeNav === "dailies" && <NonNegotiablesView />}
         {activeNav === "strength" && <StrengthView />}
+        {activeNav === "journal" && <JournalView />}
       </div>
 
       <style>{`
