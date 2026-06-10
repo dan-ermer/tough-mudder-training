@@ -773,6 +773,28 @@ function JournalView() {
           />
         </div>
 
+        {/* Workout preview */}
+        {(() => {
+          const dayData = SCHEDULE[form.phase]?.[form.day_name];
+          const session = dayData?.am?.label === form.session_label ? dayData.am
+                        : dayData?.pm?.label === form.session_label ? dayData.pm
+                        : null;
+          if (!session) return null;
+          return (
+            <div style={{ background: FOREST_LIGHT, borderRadius: 10, padding: "14px 16px", marginBottom: 14, borderLeft: `3px solid ${FOREST_MID}` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: FOREST_MID, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+                {session.title} <span style={{ fontWeight: 400, color: MUTED }}>· {session.duration}</span>
+              </div>
+              {session.items.map((item, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, padding: "5px 0", borderBottom: i < session.items.length - 1 ? `1px solid ${BORDER}` : "none" }}>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: LIME, background: FOREST, padding: "2px 6px", borderRadius: 3, whiteSpace: "nowrap", flexShrink: 0, marginTop: 1 }}>{item.t}</span>
+                  <span style={{ fontSize: 13, color: MUTED, lineHeight: 1.5 }}>{item.d}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         {error && <div style={{ fontSize: 13, color: CORAL, marginBottom: 10 }}>{error}</div>}
 
         <button type="submit" disabled={saving || !form.notes.trim()} style={{
