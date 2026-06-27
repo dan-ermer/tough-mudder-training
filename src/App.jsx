@@ -692,12 +692,14 @@ function JournalView() {
     if (!form.notes.trim()) return;
     setSaving(true);
     setError(null);
+    const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase.from("journal_entries").insert([{
       entry_date: form.entry_date,
       phase: form.phase,
       day_name: form.day_name,
       session_label: form.session_label,
       notes: form.notes.trim(),
+      user_id: user.id,
     }]);
     if (error) setError(error.message);
     else {
@@ -868,6 +870,69 @@ function JournalView() {
   );
 }
 
+function AuthGate({ children }) {
+  const [session, setSession] = useState(undefined); // undefined = loading
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (session === undefined) return (
+    <div style={{ minHeight: "100vh", background: OFF_WHITE, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: MUTED }}>Loading…</div>
+    </div>
+  );
+
+  if (!session) return (
+    <div style={{ minHeight: "100vh", background: OFF_WHITE, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; }`}</style>
+      <div style={{ background: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 16, padding: "36px 32px", width: "100%", maxWidth: 400 }}>
+        <div style={{ background: FOREST, borderRadius: 10, padding: "14px 18px", marginBottom: 28 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: LIME, letterSpacing: "0.12em", textTransform: "uppercase" }}>Tough Mudder</div>
+          <div style={{ fontSize: 11, color: "#88BBAA", marginTop: 2 }}>18-Week Training Plan</div>
+        </div>
+        {!sent ? (
+          <>
+            <div style={{ fontSize: 18, fontWeight: 700, color: TEXT, marginBottom: 6 }}>Sign in</div>
+            <div style={{ fontSize: 13, color: MUTED, marginBottom: 20 }}>Enter your email and we'll send you a magic link — no password needed.</div>
+            <input
+              type="email" placeholder="your@email.com"
+              value={email} onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, fontSize: 14, marginBottom: 10, fontFamily: "inherit", outline: "none" }}
+            />
+            {error && <div style={{ fontSize: 13, color: CORAL, marginBottom: 10 }}>{error}</div>}
+            <button onClick={handleLogin} style={{ width: "100%", background: FOREST, color: LIME, border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+              Send magic link
+            </button>
+          </>
+        ) : (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📬</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: TEXT, marginBottom: 8 }}>Check your email</div>
+            <div style={{ fontSize: 13, color: MUTED }}>We sent a sign-in link to <strong>{email}</strong>. Click it to access your training plan.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  async function handleLogin() {
+    setError(null);
+    if (!email.trim()) return;
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) setError(error.message);
+    else setSent(true);
+  }
+
+  return children;
+}
+
 export default function App() {
   const [activePhase, setActivePhase] = useState("p1");
   const [activeNav, setActiveNav] = useState("schedule");
@@ -876,6 +941,7 @@ export default function App() {
   const phase = PHASES.find(p => p.id === activePhase);
 
   return (
+    <AuthGate>
     <div style={{ minHeight: "100vh", background: OFF_WHITE, fontFamily: "'Inter', system-ui, sans-serif" }}>
       {/* Google Fonts */}
       <style>{`
@@ -906,6 +972,7 @@ export default function App() {
             ))}
           </div>
           <button onClick={() => setMobileMenuOpen(o => !o)} style={{ display: "none", background: "transparent", border: "none", color: "#AADDCC", fontSize: 22, cursor: "pointer" }} className="mobile-menu-btn">☰</button>
+          <button onClick={() => supabase.auth.signOut()} style={{ background: "transparent", border: `1px solid #1A5C44`, color: "#88BBAA", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>Sign out</button>
         </div>
         {/* Mobile nav */}
         {mobileMenuOpen && (
@@ -988,5 +1055,6 @@ export default function App() {
         }
       `}</style>
     </div>
+    </AuthGate>
   );
 }
